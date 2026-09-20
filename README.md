@@ -1,92 +1,108 @@
-# Dragon
+# Dragon — easy YouTube downloader
 
-A desktop YouTube downloader for Windows and macOS. Paste a link — anywhere in
-the window — and get the video in the highest available quality, the thumbnail,
-and a one-click copy of the title. Files land straight in your download folder.
+**Paste a link. Get the video.** Dragon is a free, open-source YouTube
+downloader for **Windows and macOS** with a clean dark UI and zero setup —
+`yt-dlp` and `ffmpeg` are bundled, so there is nothing else to install.
 
-Built with Electron and Next.js. `yt-dlp` and `ffmpeg` ship inside the app, so
-there is nothing to install.
+- **Best quality** — 4K / 1080p / 720p or any height, merged to MP4
+- **Audio only** — grab the soundtrack as `m4a`
+- **Thumbnail + title** — save the cover image, copy the title in one click
+- **Paste anywhere** — Ctrl/⌘+V in the window and it looks the link up
+- **Straight to disk** — files land in your download folder, with progress in
+  the taskbar / dock, cancel, and *Show in folder*
+- **Stays working** — one-click `yt-dlp` update inside the app when YouTube
+  changes something
+- **No ads, no accounts, no telemetry** — MIT licensed
 
-## Develop
+<p align="center">
+  <img src="docs/screenshot.png" alt="Dragon desktop app — YouTube video downloaded in 1080p" width="720">
+</p>
+
+## Download
+
+Grab the latest build from the **[Releases page](https://github.com/vojnvk/Dragon/releases/latest)**:
+
+| Platform | File |
+| --- | --- |
+| Windows 10 / 11 | `Dragon-<version>-win-x64.exe` (installer) or `Dragon-<version>-portable.exe` |
+| macOS (Apple Silicon) | `Dragon-<version>-mac-arm64.dmg` |
+| macOS (Intel) | `Dragon-<version>-mac-x64.dmg` |
+
+> **macOS:** the app is not notarized (no Apple Developer account), so the
+> first launch is blocked by Gatekeeper. Right-click the app → **Open**, or run
+> `xattr -dr com.apple.quarantine /Applications/Dragon.app` once.
+>
+> **Windows:** SmartScreen may warn about an unknown publisher for the same
+> reason — choose *More info → Run anyway*.
+
+## This repository
+
+Two apps share this repo. They are independent — each has its own
+`package.json` and `README`:
+
+| Folder | What | Use it when |
+| --- | --- | --- |
+| [`desktop/`](desktop) | **Electron app** for Windows & macOS. Frameless window with a custom title bar, native dialogs and notifications, in-app `yt-dlp` updates. | You want to download videos on your own computer. **This is the one to download.** |
+| [`web/`](web) | **Next.js web app** — the original version with API routes. Runs locally in a browser or deploys to Vercel (with real limits, see its README). | You want to self-host a downloader or hack on the web version. |
+
+```
+desktop/   Electron + Next.js (static export)   → npm run dev · npm run dist
+web/       Next.js with API routes              → npm run dev · vercel deploy
+docs/      design notes and the screenshot above
+.github/   CI + release workflow (builds the installers on tag push)
+```
+
+## Build it yourself
 
 ```bash
-npm install        # also fetches the yt-dlp nightly into ./bin
-npm run dev        # next dev + Electron with live reload
-npm test           # unit tests for the yt-dlp parsing/args logic
+# Desktop app
+cd desktop
+npm install          # also fetches the current yt-dlp nightly
+npm run dev          # live-reload development window
+npm run dist         # installer for the platform you are on → desktop/release/
+
+# Web app
+cd web
+npm install
+npm run dev          # http://localhost:3000
 ```
 
-`npm run dev` starts Next.js on :3000 and opens the Electron window against it.
-Edits to `app/` hot-reload; edits to `electron/` need a restart.
+## Releasing
 
-## Build installers
+Bump `version` in `desktop/package.json`, then push a matching tag:
 
 ```bash
-npm run dist:win   # release/Dragon-<version>-win-x64.exe (NSIS) + portable .exe
-npm run dist:mac   # release/Dragon-<version>-mac-<arch>.dmg (arch of the building Mac)
+git tag v1.0.0 && git push origin v1.0.0
 ```
 
-Each platform builds on itself: the Windows build needs Windows, the macOS
-build needs a Mac (the bundled `ffmpeg` and `yt-dlp` are platform binaries and
-the DMG is a macOS format).
+GitHub Actions builds the Windows installer and both macOS DMGs and attaches
+them to the release automatically (`.github/workflows/release.yml`).
 
-**macOS is unsigned.** Without an Apple Developer account there is no
-signature or notarization, so Gatekeeper refuses the first launch. Either
-right-click the app → *Open*, or run:
+## Troubleshooting
 
-```bash
-xattr -dr com.apple.quarantine /Applications/Dragon.app
-```
+- **`HTTP Error 403` or the download silently drops to 360p** → YouTube
+  changed something. *Settings → yt-dlp → Update*. This fixes it nearly every
+  time.
+- **Age-restricted / private / members-only video** → *Settings → Cookies*,
+  pick your browser or an exported `cookies.txt`. On Windows prefer Firefox;
+  Chromium browsers usually fail with a DPAPI error.
+- **DRM protected** → cannot be downloaded by any tool.
 
-To sign it later, set `identity` in `electron-builder.yml` and add
-`CSC_LINK` / `CSC_KEY_PASSWORD` plus notarization credentials to the
-environment; nothing else needs to change.
+## Legal
 
-## How it works
+Downloading videos may violate YouTube's Terms of Service and the rights of
+content owners. Dragon is a tool for personal use — for your own content, for
+content you have permission to download, or where your local law allows it.
+You are responsible for how you use it.
 
-```
-electron/            main process — owns yt-dlp, ffmpeg, settings, the window
-  main.ts            frameless BrowserWindow, app:// protocol for the UI, CSP
-  ipc.ts             ipcMain handlers (window controls, info, download, settings)
-  preload.ts         contextBridge → window.dragon (see shared/api.ts)
-  ytdlp.ts           spawn yt-dlp, parse progress, cancel, android fallback
-  ytdlp-core.ts      pure helpers (tested)
-  paths.ts           where the binaries are: userData/bin → resources/bin → ./bin
-  settings.ts        userData/settings.json
-  update.ts          in-app yt-dlp nightly update into userData/bin
-app/                 Next.js UI, static export (`out/`), served over app://
-shared/              types shared by main and renderer
-scripts/             yt-dlp fetcher (postinstall + in-app), esbuild bundler
-```
+## License
 
-The renderer is sandboxed with context isolation; everything it can do goes
-through the typed API in `shared/api.ts`. The window is frameless on both
-platforms: Windows draws its own caption buttons, macOS keeps the native
-traffic lights inside the custom title bar.
+[MIT](LICENSE)
 
-Downloads run in a scratch folder next to the destination
-(`.dragon-<id>/`) and only the finished file is moved into place, so a cancel
-never leaves `.part` files behind. Progress is mirrored to the taskbar / dock
-icon and a notification fires if the window is not in front when a download
-finishes.
+---
 
-## Keeping downloads working
-
-YouTube changes its streaming defences constantly. A stale `yt-dlp` shows up as
-`HTTP Error 403` on ordinary videos, or as a silent drop to 360p (the app tells
-you when that fallback fired). **Settings → yt-dlp → Update** fetches the
-current nightly build; it goes to the user data folder and takes precedence
-over the copy bundled with the app, so no reinstall is needed.
-
-For age-restricted, private, or members-only videos, point **Settings →
-Cookies** at a browser or an exported `cookies.txt`. On Windows, Chromium
-browsers usually fail with a DPAPI error because of app-bound cookie
-encryption — use Firefox or the exported file. Some videos are DRM protected
-and cannot be downloaded at all.
-
-## Quality
-
-"Best available" takes the top video stream plus the top audio stream and
-merges them into MP4. At the top of the ladder YouTube serves AV1/Opus — the
-highest quality, but not playable everywhere. Pick an explicit height like
-`1080p` if you want something more broadly compatible, or *Audio only* for an
-`m4a`.
+<sub>Keywords: youtube downloader, easy youtube downloader, free youtube
+downloader, youtube video downloader windows, youtube downloader mac, yt-dlp
+gui, yt-dlp desktop app, download youtube video 4k 1080p, youtube to mp4,
+youtube to m4a, youtube thumbnail downloader, electron youtube downloader,
+open source youtube downloader.</sub>

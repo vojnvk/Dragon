@@ -1,0 +1,66 @@
+# Builds the desktop app for Windows and macOS and attaches the installers to a
+# GitHub Release. Triggered by pushing a tag like v1.2.3; the tag must match
+# the version in desktop/package.json (electron-builder names the files by it).
+name: Release desktop app
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: desktop
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            args: --win
+          - name: macOS Apple Silicon
+            os: macos-latest
+            args: --mac
+          - name: macOS Intel
+            os: macos-15-intel
+            args: --mac
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      # postinstall fetches the yt-dlp nightly for this platform into ./bin and
+      # ffmpeg-static downloads the matching ffmpeg.
+      - run: npm ci
+
+      - run: npm test
+      - run: npm run build
+
+      # `--publish always` uploads straight to the release for this tag,
+      # creating it if the other platform's job has not already.
+      - run: npx electron-builder ${{ matrix.args }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No Apple Developer certificate: build unsigned, don't look for one.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dragon-${{ matrix.os }}
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.dmg
+          if-no-files-found: error

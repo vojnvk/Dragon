@@ -1,9 +1,26 @@
 {
   "name": "dragon",
   "version": "1.0.0",
-  "description": "Paste a YouTube link. Get the video in the best quality, the thumbnail, and the title.",
+  "description": "Easy YouTube downloader for Windows and macOS. Paste a link, get the video in the best quality, the thumbnail and the title.",
   "private": true,
   "main": "dist-electron/main.js",
+  "homepage": "https://github.com/vojnvk/Dragon",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vojnvk/Dragon.git"
+  },
+  "license": "MIT",
+  "author": "vojnvk",
+  "keywords": [
+    "youtube",
+    "downloader",
+    "youtube-downloader",
+    "yt-dlp",
+    "electron",
+    "video",
+    "mp4",
+    "desktop"
+  ],
   "scripts": {
     "dev": "concurrently -k -n next,electron -c cyan,magenta \"npm:dev:next\" \"npm:dev:electron\"",
     "dev:next": "next dev --port 3000",
