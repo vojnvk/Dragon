@@ -6,6 +6,9 @@ protocol; yt-dlp runs in the main process and the renderer talks to it through
 
 ## Run
 
+Needs Node 24 and npm 11.10 or newer (`npm i -g npm`). Older npm writes a
+lockfile that CI's npm rejects, so it's refused outright.
+
 ```
 npm install      # also downloads the yt-dlp nightly into ./bin
 npm run dev      # next dev on :3000 + Electron pointed at it

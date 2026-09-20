@@ -54,5 +54,9 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "wait-on": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=24",
+    "npm": ">=11.10"
   }
 }
