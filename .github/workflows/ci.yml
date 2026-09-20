@@ -19,9 +19,13 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: desktop/package-lock.json
-      - run: npm ci 2>&1 | tee ci.log || { echo "::error::$(tail -n 40 ci.log | sed ':a;N;$!ba;s/
-/%0A/g')"; exit 1; }
+      - name: npm ci
         shell: bash
+        run: |
+          if ! npm ci 2>&1 | tee ci.log; then
+            echo "::error::$(tail -n 40 ci.log | sed ':a;N;$!ba;s/\n/%0A/g')"
+            exit 1
+          fi
       - run: npm run lint
       - run: npm test
       - run: npm run build
@@ -38,8 +42,12 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: npm ci 2>&1 | tee ci.log || { echo "::error::$(tail -n 40 ci.log | sed ':a;N;$!ba;s/
-/%0A/g')"; exit 1; }
+      - name: npm ci
         shell: bash
+        run: |
+          if ! npm ci 2>&1 | tee ci.log; then
+            echo "::error::$(tail -n 40 ci.log | sed ':a;N;$!ba;s/\n/%0A/g')"
+            exit 1
+          fi
       - run: npm run lint
       - run: npm run build
