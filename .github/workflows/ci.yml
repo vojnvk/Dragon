@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           if ! npm ci 2>&1 | tee ci.log; then
-            echo "::error::$(tail -n 40 ci.log | sed ':a;N;$!ba;s/\n/%0A/g')"
+            echo "::error::$(grep 'npm error' ci.log | head -n 12 | sed ':a;N;$!ba;s/\n/%0A/g')"
             exit 1
           fi
       - run: npm run lint
@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           if ! npm ci 2>&1 | tee ci.log; then
-            echo "::error::$(tail -n 40 ci.log | sed ':a;N;$!ba;s/\n/%0A/g')"
+            echo "::error::$(grep 'npm error' ci.log | head -n 12 | sed ':a;N;$!ba;s/\n/%0A/g')"
             exit 1
           fi
       - run: npm run lint
