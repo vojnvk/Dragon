@@ -6,6 +6,9 @@
 
 export type Quality = { value: string; label: string };
 
+/** A subtitle track; `auto` marks YouTube's machine-generated captions. */
+export type Caption = { lang: string; label: string; auto: boolean };
+
 export type VideoInfo = {
   id: string;
   title: string;
@@ -17,6 +20,15 @@ export type VideoInfo = {
   webpageUrl: string;
   thumbnail: string;
   qualities: Quality[];
+  captions: Caption[];
+};
+
+export type Transcript = {
+  filePath: string;
+  /** Plain text, one caption per line. This is what the file contains. */
+  text: string;
+  /** Same lines prefixed with "[m:ss] ". */
+  timed: string;
 };
 
 export type DownloadStatus = "downloading" | "merging" | "done" | "error" | "cancelled";
@@ -92,6 +104,9 @@ export type DragonApi = {
 
   /** Save the thumbnail into the download folder; resolves with the file path. */
   saveThumbnail(src: string, title: string): Promise<string>;
+
+  /** Save the transcript as plain text into the download folder. */
+  transcript(url: string, lang: string): Promise<Transcript>;
 
   shell: {
     showItemInFolder(filePath: string): void;

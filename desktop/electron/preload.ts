@@ -28,6 +28,8 @@ const api: DragonApi = {
 
   saveThumbnail: (src, title) => ipcRenderer.invoke("thumb:save", src, title),
 
+  transcript: (url, lang) => ipcRenderer.invoke("transcript", url, lang),
+
   shell: {
     showItemInFolder: (filePath) => ipcRenderer.send("shell:showItemInFolder", filePath),
     openPath: (dir) => ipcRenderer.send("shell:openPath", dir),

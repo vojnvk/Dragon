@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DownloadResult, Progress, Settings, VideoInfo } from "@/shared/api";
+import type { DownloadResult, Progress, Settings, Transcript, VideoInfo } from "@/shared/api";
 import { isYouTubeUrl } from "@/shared/youtube";
 import { dragon, useInElectron, usePlatform } from "./lib/dragon";
 import { SettingsSheet } from "./components/SettingsSheet";
@@ -13,6 +13,7 @@ import {
   FolderIcon,
   ImageIcon,
   SettingsIcon,
+  TextIcon,
   Spinner,
   XIcon,
 } from "./components/icons";
@@ -48,6 +49,13 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
   const [thumb, setThumb] = useState<"idle" | "saving" | "saved">("idle");
+  const [captionLang, setCaptionLang] = useState("");
+  const [transcript, setTranscript] = useState<{
+    busy: boolean;
+    result: Transcript | null;
+    expanded: boolean;
+    copied: "plain" | "timed" | null;
+  }>({ busy: false, result: null, expanded: false, copied: null });
   const [settings, setSettings] = useState<Settings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const platform = usePlatform();
@@ -65,11 +73,13 @@ export default function Home() {
     setInfo(null);
     setJob(null);
     setThumb("idle");
+    setTranscript({ busy: false, result: null, expanded: false, copied: null });
     try {
       const data = await dragon().info(target);
       if (seq !== lookupSeq.current) return;
       setInfo(data);
       setQuality("best");
+      setCaptionLang(data.captions[0]?.lang ?? "");
     } catch (e) {
       if (seq !== lookupSeq.current) return;
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -139,6 +149,26 @@ export default function Home() {
       setThumb("idle");
       setError(e instanceof Error ? e.message : "Could not save the thumbnail.");
     }
+  }
+
+  async function saveTranscript() {
+    if (!info || !captionLang) return;
+    setError(null);
+    setTranscript({ busy: true, result: null, expanded: false, copied: null });
+    try {
+      const result = await dragon().transcript(info.webpageUrl, captionLang);
+      setTranscript({ busy: false, result, expanded: false, copied: null });
+    } catch (e) {
+      setTranscript({ busy: false, result: null, expanded: false, copied: null });
+      setError(e instanceof Error ? e.message : "Could not fetch the transcript.");
+    }
+  }
+
+  async function copyTranscript(timed: boolean) {
+    if (!transcript.result) return;
+    await navigator.clipboard.writeText(timed ? transcript.result.timed : transcript.result.text);
+    setTranscript((t) => ({ ...t, copied: timed ? "timed" : "plain" }));
+    setTimeout(() => setTranscript((t) => ({ ...t, copied: null })), 1600);
   }
 
   async function copyTitle() {
@@ -299,6 +329,80 @@ export default function Home() {
                 {thumb === "saved" ? "Saved" : "Thumbnail"}
               </button>
             </div>
+
+            {/* Transcript: subtitles or auto-captions flattened to a .txt */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              {info.captions.length > 0 ? (
+                <>
+                  <select
+                    value={captionLang}
+                    onChange={(e) => setCaptionLang(e.target.value)}
+                    disabled={transcript.busy}
+                    aria-label="Transcript language"
+                    className="field h-9 text-xs sm:w-auto sm:min-w-[11rem]"
+                  >
+                    {info.captions.map((c) => (
+                      <option key={c.lang} value={c.lang}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={saveTranscript}
+                    disabled={transcript.busy}
+                    className="btn-secondary h-9"
+                  >
+                    {transcript.busy ? <Spinner /> : <TextIcon />}
+                    {transcript.busy ? "Fetching" : "Transcript"}
+                  </button>
+                </>
+              ) : (
+                <p className="text-xs text-muted">No subtitles or captions for this video.</p>
+              )}
+            </div>
+
+            {transcript.result && (
+              <div className="rise-in space-y-2 rounded-xl border border-line bg-background p-4">
+                <p
+                  className={`whitespace-pre-line text-sm leading-relaxed text-foreground/90 ${
+                    transcript.expanded ? "scroll-area max-h-80 overflow-y-auto" : "line-clamp-3"
+                  }`}
+                >
+                  {transcript.result.text}
+                </p>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+                  <button
+                    type="button"
+                    onClick={() => setTranscript((t) => ({ ...t, expanded: !t.expanded }))}
+                    className="underline decoration-line underline-offset-4 transition-colors hover:text-foreground"
+                  >
+                    {transcript.expanded ? "Show less" : "Show all"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copyTranscript(false)}
+                    className="underline decoration-line underline-offset-4 transition-colors hover:text-foreground"
+                  >
+                    {transcript.copied === "plain" ? "Copied" : "Copy"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copyTranscript(true)}
+                    className="underline decoration-line underline-offset-4 transition-colors hover:text-foreground"
+                  >
+                    {transcript.copied === "timed" ? "Copied" : "Copy with timestamps"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => dragon().shell.showItemInFolder(transcript.result!.filePath)}
+                    className="underline decoration-line underline-offset-4 transition-colors hover:text-foreground"
+                  >
+                    Show in folder
+                  </button>
+                </div>
+              </div>
+            )}
 
             {job && (
               <div className="rise-in space-y-2.5">

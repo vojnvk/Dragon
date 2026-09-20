@@ -106,3 +106,35 @@ export function formatDuration(seconds: number | null): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
+
+export type CaptionLine = { start: number; text: string };
+
+/**
+ * YouTube's json3 caption format: a list of events, each with a start time in
+ * ms and text segments. Auto-captions arrive as one event per phrase, manual
+ * subtitles as one per cue.
+ */
+export function json3ToLines(raw: string): CaptionLine[] {
+  const data = JSON.parse(raw) as { events?: { tStartMs?: number; segs?: { utf8?: string }[] }[] };
+  const lines: CaptionLine[] = [];
+  for (const event of data.events ?? []) {
+    const text = (event.segs ?? [])
+      .map((s) => s.utf8 ?? "")
+      .join("")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (text) lines.push({ start: (event.tStartMs ?? 0) / 1000, text });
+  }
+  return lines;
+}
+
+export function json3ToText(raw: string): string {
+  return json3ToLines(raw)
+    .map((l) => l.text)
+    .join("\n");
+}
+
+/** "[m:ss] text" per line; hours appear only when a video is that long. */
+export function linesWithTimestamps(lines: CaptionLine[]): string {
+  return lines.map((l) => `[${formatDuration(l.start) || "0:00"}] ${l.text}`).join("\n");
+}

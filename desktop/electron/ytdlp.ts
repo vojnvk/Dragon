@@ -1,9 +1,9 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { DownloadRequest, DownloadResult, Progress, VideoInfo } from "../shared/api";
+import type { Caption, DownloadRequest, DownloadResult, Progress, Transcript, VideoInfo } from "../shared/api";
 import { resolveFfmpeg, resolveYtdlp } from "./paths";
 import { getSettings } from "./settings";
 import {
@@ -14,6 +14,8 @@ import {
   formatDuration,
   formatSelector,
   isGated,
+  json3ToLines,
+  linesWithTimestamps,
   parseProgressLine,
 } from "./ytdlp-core";
 
@@ -81,6 +83,27 @@ export async function ytdlpVersion(): Promise<string | null> {
 
 type RawFormat = { height?: number | null; vcodec?: string | null };
 type RawThumb = { url?: string; width?: number };
+type RawSubs = Record<string, { name?: string }[]>;
+
+/**
+ * Manual subtitles in every language they exist in, then auto-captions for
+ * the video's own language and English. YouTube offers auto-captions machine
+ * translated into 150+ languages; listing them all would bury the useful ones.
+ */
+function listCaptions(subs: RawSubs | undefined, auto: RawSubs | undefined, language?: string): Caption[] {
+  const out: Caption[] = [];
+  for (const [lang, tracks] of Object.entries(subs ?? {})) {
+    out.push({ lang, label: tracks[0]?.name ?? lang, auto: false });
+  }
+  const wanted = [...new Set([language, "en"].filter((l): l is string => Boolean(l)))];
+  for (const lang of wanted) {
+    const tracks = auto?.[lang];
+    if (tracks && !out.some((c) => c.lang === lang)) {
+      out.push({ lang, label: `${tracks[0]?.name ?? lang} (auto)`, auto: true });
+    }
+  }
+  return out;
+}
 
 // Highest quality first. yt-dlp lists these without checking they exist, and
 // YouTube only generates the larger sizes for high-resolution uploads, so each
@@ -113,6 +136,9 @@ export async function fetchInfo(url: string): Promise<VideoInfo> {
     formats?: RawFormat[];
     thumbnails?: RawThumb[];
     thumbnail?: string;
+    subtitles?: RawSubs;
+    automatic_captions?: RawSubs;
+    language?: string;
   };
 
   const heights = [
@@ -140,6 +166,7 @@ export async function fetchInfo(url: string): Promise<VideoInfo> {
       ...heights.map((h) => ({ value: String(h), label: `${h}p` })),
       { value: "audio", label: "Audio only (m4a)" },
     ],
+    captions: listCaptions(info.subtitles, info.automatic_captions, info.language),
   };
 }
 
@@ -357,6 +384,48 @@ export async function startDownload(
     // Right after a kill, Windows can still hold the .part files for a moment.
     await rm(state.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
     active = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Transcript
+
+/**
+ * Subtitles only, no media. yt-dlp writes `<name>.<lang>.json3` into the
+ * scratch folder; that is flattened to text and saved next to the videos.
+ */
+export async function fetchTranscript(url: string, lang: string): Promise<Transcript> {
+  const { downloadDir } = getSettings();
+  const scratch = path.join(downloadDir, `.dragon-${randomUUID()}`);
+  await mkdir(scratch, { recursive: true });
+  try {
+    await run(
+      [
+        ...baseArgs(),
+        "--skip-download",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-langs",
+        lang,
+        "--sub-format",
+        "json3",
+        "-o",
+        path.join(scratch, "%(title).150B [%(id)s]"),
+        url,
+      ],
+      120_000,
+    );
+    const produced = (await readdir(scratch)).find((f) => f.endsWith(".json3"));
+    if (!produced) throw new Error(`No ${lang} captions were available for this video.`);
+
+    const lines = json3ToLines(await readFile(path.join(scratch, produced), "utf8"));
+    const text = lines.map((l) => l.text).join("\n");
+    const filename = freeName(downloadDir, produced.replace(/\.json3$/, ".txt"));
+    const filePath = path.join(downloadDir, filename);
+    await writeFile(filePath, `${text}\n`, "utf8");
+    return { filePath, text, timed: linesWithTimestamps(lines) };
+  } finally {
+    await rm(scratch, { recursive: true, force: true }).catch(() => {});
   }
 }
 

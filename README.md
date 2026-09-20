@@ -1,8 +1,9 @@
 # Dragon
 
 YouTube downloader for Windows and macOS. Paste a link, pick a quality, get an
-mp4 (or m4a for audio only). yt-dlp and ffmpeg are bundled, so there's nothing
-to install.
+mp4 (or m4a for audio only). It also saves the thumbnail and the transcript:
+subtitles or auto-captions as a .txt, with or without timestamps. yt-dlp and
+ffmpeg are bundled, so there's nothing to install.
 
 ![screenshot](docs/screenshot.png)
 
@@ -47,5 +48,8 @@ git push origin v1.1.0
 
 ## License
 
-MIT. Downloading videos may break YouTube's terms of service. Use it on your
-own content or where you're allowed to.
+MIT. Do what you want with it: fork it, change it, sell it. The only thing the
+license asks is that you keep the copyright notice in copies of the code.
+
+Downloading videos may break YouTube's terms of service. Use it on your own
+content or where you're allowed to.

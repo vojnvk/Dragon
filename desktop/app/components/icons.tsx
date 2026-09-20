@@ -73,6 +73,12 @@ export const ImageIcon = (p: Props) => (
   </svg>
 );
 
+export const TextIcon = (p: Props) => (
+  <svg {...base} {...p}>
+    <path d="M2.5 4h11M2.5 8h11M2.5 12h7" />
+  </svg>
+);
+
 export const CopyIcon = (p: Props) => (
   <svg {...base} {...p}>
     <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />

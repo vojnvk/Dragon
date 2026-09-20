@@ -7,6 +7,9 @@ import {
   humanSpeed,
   isGated,
   isYouTubeUrl,
+  json3ToLines,
+  json3ToText,
+  linesWithTimestamps,
   parseProgressLine,
 } from "./ytdlp-core.ts";
 
@@ -109,5 +112,37 @@ describe("isGated / explain", () => {
     assert.match(explain("HTTP Error 403: Forbidden"), /Update yt-dlp/);
     assert.match(explain("Sign in to confirm you're not a bot"), /cookies/i);
     assert.equal(explain("plain"), "plain");
+  });
+});
+
+describe("json3ToText", () => {
+  it("joins segments and drops empty events", () => {
+    const raw = JSON.stringify({
+      events: [
+        { tStartMs: 0, segs: [{ utf8: "Hello " }, { utf8: "world" }] },
+        { tStartMs: 500, segs: [{ utf8: "\n" }] },
+        { tStartMs: 900 },
+        { tStartMs: 1000, segs: [{ utf8: "second   line" }] },
+      ],
+    });
+    assert.equal(json3ToText(raw), "Hello world\nsecond line");
+  });
+  it("handles a file with no events", () => {
+    assert.equal(json3ToText("{}"), "");
+  });
+});
+
+describe("linesWithTimestamps", () => {
+  it("prefixes each line with its start time", () => {
+    const lines = json3ToLines(
+      JSON.stringify({
+        events: [
+          { tStartMs: 0, segs: [{ utf8: "first" }] },
+          { tStartMs: 65500, segs: [{ utf8: "second" }] },
+          { tStartMs: 3600000, segs: [{ utf8: "third" }] },
+        ],
+      }),
+    );
+    assert.equal(linesWithTimestamps(lines), "[0:00] first\n[1:06] second\n[1:00:00] third");
   });
 });

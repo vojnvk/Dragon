@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import type { DownloadRequest, Progress, Settings } from "../shared/api";
 import { getSettings, setSettings } from "./settings";
 import { updateYtdlp, ytdlpStatus } from "./update";
-import { cancelDownload, fetchInfo, saveThumbnail, startDownload } from "./ytdlp";
+import { cancelDownload, fetchInfo, fetchTranscript, saveThumbnail, startDownload } from "./ytdlp";
 import { isYouTubeUrl } from "./ytdlp-core";
 
 function requireYouTube(url: unknown): string {
@@ -81,6 +81,12 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   });
 
   ipcMain.handle("download:cancel", () => cancelDownload());
+
+  ipcMain.handle("transcript", (_e, url: unknown, lang: unknown) => {
+    // The language goes into a yt-dlp argument; keep it to a BCP 47-ish tag.
+    const code = typeof lang === "string" && /^[a-zA-Z0-9-]{2,20}$/.test(lang) ? lang : "en";
+    return fetchTranscript(requireYouTube(url), code);
+  });
 
   ipcMain.handle("thumb:save", (_e, src: unknown, title: unknown) =>
     saveThumbnail(String(src ?? ""), typeof title === "string" ? title : "thumbnail"),
