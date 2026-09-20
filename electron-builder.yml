@@ -44,9 +44,11 @@ portable:
 
 mac:
   category: public.app-category.utilities
+  # Host architecture only: the bundled ffmpeg-static binary matches the Mac
+  # that runs the build, so an Apple Silicon Mac produces the arm64 DMG and an
+  # Intel Mac the x64 one. (yt-dlp_macos itself is universal.)
   target:
-    - target: dmg
-      arch: [arm64, x64]
+    - dmg
   # electron-builder derives the .icns from the PNG (needs a Mac to build anyway).
   icon: assets/icon.png
   darkModeSupport: true
