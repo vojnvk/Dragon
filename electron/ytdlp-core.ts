@@ -3,25 +3,12 @@
  * touches the filesystem or spawns anything, so it is unit tested directly.
  */
 
+export { isYouTubeUrl } from "../shared/youtube.ts";
+
 export const CORE_ARGS = ["--no-playlist", "--no-warnings", "--ignore-config", "--no-cache-dir"];
 
 export const PROGRESS_TEMPLATE =
   "download:PROG|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s";
-
-export function isYouTubeUrl(raw: string): boolean {
-  try {
-    const u = new URL(raw.trim());
-    const host = u.hostname.replace(/^www\./, "").replace(/^m\./, "");
-    return (
-      host === "youtube.com" ||
-      host === "youtu.be" ||
-      host === "music.youtube.com" ||
-      host === "youtube-nocookie.com"
-    );
-  } catch {
-    return false;
-  }
-}
 
 /** yt-dlp errors are noisy; surface the first meaningful line. */
 export function cleanError(stderr: string): string {

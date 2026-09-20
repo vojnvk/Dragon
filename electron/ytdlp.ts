@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -49,7 +49,7 @@ function run(args: string[], timeoutMs = 60_000): Promise<string> {
     let out = "";
     let err = "";
     const timer = setTimeout(() => {
-      child.kill();
+      killTree(child);
       reject(new Error("yt-dlp timed out"));
     }, timeoutMs);
 
@@ -161,10 +161,30 @@ const ATTEMPTS: { extra: string[]; restricted: boolean }[] = [
 type Active = { id: string; child: ChildProcess | null; cancelled: boolean; dir: string };
 let active: Active | null = null;
 
+/**
+ * The yt-dlp binaries are PyInstaller one-file builds: the executable we spawn
+ * is a bootloader that runs the real program as a child process. Killing only
+ * the parent leaves that child (and any ffmpeg it started) downloading away,
+ * so the whole tree has to go.
+ */
+function killTree(child: ChildProcess): void {
+  if (!child.pid) return;
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
+  } else {
+    // Spawned detached, so the pid is also a process group id.
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      child.kill("SIGKILL");
+    }
+  }
+}
+
 export function cancelDownload(): void {
   if (!active) return;
   active.cancelled = true;
-  active.child?.kill();
+  if (active.child) killTree(active.child);
 }
 
 /**
@@ -203,7 +223,9 @@ async function runAttempt(
   const progress: Progress = { id: state.id, status: "downloading", percent: 0, speed: null, eta: null };
 
   return new Promise((resolve) => {
-    const child = spawn(binary(), args, { windowsHide: true });
+    // `detached` puts the child in its own process group on POSIX so killTree
+    // can take the whole group down; it has no effect on Windows.
+    const child = spawn(binary(), args, { windowsHide: true, detached: process.platform !== "win32" });
     state.child = child;
     let stderr = "";
     let buffer = "";
@@ -332,7 +354,8 @@ export async function startDownload(
     result.error = e instanceof Error ? e.message : "Download failed.";
     return result;
   } finally {
-    await rm(state.dir, { recursive: true, force: true }).catch(() => {});
+    // Right after a kill, Windows can still hold the .part files for a moment.
+    await rm(state.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
     active = null;
   }
 }

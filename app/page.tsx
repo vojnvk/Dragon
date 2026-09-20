@@ -1,33 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { DownloadResult, Progress, Settings, VideoInfo } from "@/shared/api";
+import { isYouTubeUrl } from "@/shared/youtube";
+import { dragon, useInElectron, usePlatform } from "./lib/dragon";
+import { SettingsSheet } from "./components/SettingsSheet";
+import {
+  CheckIcon,
+  CopyIcon,
+  DownloadIcon,
+  ExternalIcon,
+  FolderIcon,
+  ImageIcon,
+  SettingsIcon,
+  Spinner,
+  XIcon,
+} from "./components/icons";
 
-type Quality = { value: string; label: string };
-
-type VideoInfo = {
-  id: string;
-  title: string;
-  channel: string;
-  durationLabel: string;
-  viewCount: number | null;
-  uploadDate: string | null;
-  webpageUrl: string;
-  thumbnail: string;
-  qualities: Quality[];
-};
-
-type JobState = {
-  status: "downloading" | "merging" | "uploading" | "done" | "error";
-  percent: number;
-  speed: string | null;
-  eta: number | null;
-  filename: string | null;
-  size: number | null;
-  restricted: boolean;
-  /** Set once the file is ready, so the UI can offer a manual link too. */
-  url: string | null;
-  error: string | null;
-};
+type Job = { progress: Progress | null; result: DownloadResult | null };
 
 function humanSize(bytes: number | null): string {
   if (!bytes) return "";
@@ -41,174 +31,113 @@ function humanSize(bytes: number | null): string {
   return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-/**
- * Hand the file to the browser's downloader. An anchor click is used rather than
- * a router navigation, which would try to render the response as a page. The
- * `download` attribute only applies same-origin; a hosted Blob URL relies on the
- * content-disposition header it is served with instead.
- */
-function save(url: string, filename?: string | null): void {
-  try {
-    const link = document.createElement("a");
-    link.href = url;
-    if (url.startsWith("/")) link.download = filename ?? "";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  } catch {
-    // Some browsers block a click this long after the original gesture. The UI
-    // keeps a visible link for exactly this case.
-  }
+function humanEta(seconds: number | null): string {
+  if (seconds === null || seconds <= 0) return "";
+  if (seconds < 60) return `${Math.round(seconds)}s left`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}:${String(s).padStart(2, "0")} left`;
 }
 
 export default function Home() {
   const [url, setUrl] = useState("");
   const [info, setInfo] = useState<VideoInfo | null>(null);
   const [quality, setQuality] = useState("best");
-  const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [job, setJob] = useState<JobState | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const [job, setJob] = useState<Job | null>(null);
+  const [thumb, setThumb] = useState<"idle" | "saving" | "saved">("idle");
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const platform = usePlatform();
+  const inElectron = useInElectron();
+  const inputRef = useRef<HTMLInputElement>(null);
+  // IPC calls cannot be aborted; a stale reply is simply ignored.
+  const lookupSeq = useRef(0);
 
-  const cancelRun = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-  }, []);
-
-  useEffect(() => cancelRun, [cancelRun]);
-
-  async function lookup(event: React.FormEvent) {
-    event.preventDefault();
-    cancelRun();
-    setLoading(true);
+  const lookup = useCallback(async (raw: string) => {
+    const target = raw.trim();
+    if (!target) return;
+    const seq = ++lookupSeq.current;
+    setFetching(true);
     setError(null);
     setInfo(null);
     setJob(null);
+    setThumb("idle");
     try {
-      const res = await fetch("/api/info", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Something went wrong.");
-      setInfo(data as VideoInfo);
+      const data = await dragon().info(target);
+      if (seq !== lookupSeq.current) return;
+      setInfo(data);
       setQuality("best");
     } catch (e) {
+      if (seq !== lookupSeq.current) return;
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
-      setLoading(false);
+      if (seq === lookupSeq.current) setFetching(false);
     }
-  }
+  }, []);
+
+  // Boot: settings, platform, progress feed, global shortcuts.
+  useEffect(() => {
+    if (!inElectron) return;
+    const api = dragon();
+    void api.settings.get().then(setSettings);
+
+    const offProgress = api.download.onProgress((p) =>
+      setJob((prev) => (prev ? { ...prev, progress: p } : prev)),
+    );
+
+    // Paste a link anywhere in the window and it is looked up straight away.
+    const onPaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData("text") ?? "";
+      if (!isYouTubeUrl(text)) return;
+      e.preventDefault();
+      setUrl(text.trim());
+      void lookup(text);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      const mod = api.platform === "darwin" ? e.metaKey : e.ctrlKey;
+      if (mod && e.key === ",") {
+        e.preventDefault();
+        setSettingsOpen((o) => !o);
+      }
+    };
+    document.addEventListener("paste", onPaste);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      offProgress();
+      document.removeEventListener("paste", onPaste);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [inElectron, lookup]);
 
   async function startDownload() {
     if (!info) return;
-    cancelRun();
     setError(null);
     setJob({
-      status: "downloading",
-      percent: 0,
-      speed: null,
-      eta: null,
-      filename: null,
-      size: null,
-      restricted: false,
-      url: null,
-      error: null,
+      progress: { id: "", status: "downloading", percent: 0, speed: null, eta: null },
+      result: null,
     });
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    let res: Response;
     try {
-      res = await fetch("/api/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: info.webpageUrl, quality }),
-        signal: controller.signal,
-      });
-    } catch {
-      setJob(null);
-      setError("Could not reach the server.");
-      return;
-    }
-
-    // A validation failure comes back as plain JSON rather than an event stream.
-    if (!res.ok || !res.body) {
-      const message = await res.json().catch(() => null);
-      setJob(null);
-      setError(message?.error ?? "Could not start the download.");
-      return;
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    // The stream must end on a done or error event. If it just stops — server
-    // restart, dropped connection, a hosted function hitting its time limit —
-    // saying so beats leaving the button spinning on "Working…" forever.
-    let settled = false;
-
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        // SSE frames are separated by a blank line.
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop() ?? "";
-
-        for (const frame of frames) {
-          const line = frame.split("\n").find((l) => l.startsWith("data: "));
-          if (!line) continue;
-          const event = JSON.parse(line.slice(6));
-
-          if (event.type === "progress") {
-            setJob((prev) => (prev ? { ...prev, ...event } : prev));
-          } else if (event.type === "error") {
-            settled = true;
-            setJob((prev) => (prev ? { ...prev, status: "error", error: event.error } : prev));
-          } else if (event.type === "done") {
-            settled = true;
-            setJob((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    status: "done",
-                    percent: 100,
-                    filename: event.filename,
-                    size: event.size,
-                    restricted: event.restricted,
-                    url: event.url,
-                  }
-                : prev,
-            );
-            save(event.url, event.filename);
-          }
-        }
-      }
-
-      if (!settled) {
-        setJob((prev) =>
-          prev
-            ? { ...prev, status: "error", error: "The connection dropped before the file was ready." }
-            : prev,
-        );
-      }
+      const result = await dragon().download.start({ url: info.webpageUrl, quality, title: info.title });
+      setJob((prev) => (prev ? { ...prev, result } : prev));
     } catch (e) {
-      // An abort is the user's own doing and needs no message.
-      const aborted = e instanceof DOMException && e.name === "AbortError";
-      if (!aborted && !settled) {
-        setJob((prev) =>
-          prev ? { ...prev, status: "error", error: "Lost the connection to the server." } : prev,
-        );
-      }
-    } finally {
-      abortRef.current = null;
+      setJob(null);
+      setError(e instanceof Error ? e.message : "Download failed.");
+    }
+  }
+
+  async function saveThumbnail() {
+    if (!info) return;
+    setThumb("saving");
+    try {
+      await dragon().saveThumbnail(info.thumbnail, info.title);
+      setThumb("saved");
+      setTimeout(() => setThumb("idle"), 1800);
+    } catch (e) {
+      setThumb("idle");
+      setError(e instanceof Error ? e.message : "Could not save the thumbnail.");
     }
   }
 
@@ -219,67 +148,119 @@ export default function Home() {
     setTimeout(() => setCopied(false), 1600);
   }
 
-  const busy = job?.status === "downloading" || job?.status === "merging" || job?.status === "uploading";
+  const progress = job?.progress ?? null;
+  const result = job?.result ?? null;
+  const busy = Boolean(job && !result);
+  const merging = progress?.status === "merging";
+
+  if (inElectron === false) {
+    return (
+      <main className="mx-auto flex max-w-md flex-1 flex-col items-center justify-center gap-3 px-6 py-24 text-center">
+        <h1 className="text-lg font-medium">Dragon runs as a desktop app</h1>
+        <p className="text-sm text-muted">
+          This page is being viewed in a browser. Start it with <code className="font-mono">npm run dev</code>{" "}
+          and use the Electron window instead.
+        </p>
+      </main>
+    );
+  }
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-5 py-14 sm:py-20">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Dragon</h1>
-        <p className="text-sm text-muted">
-          Paste a YouTube link. Get the video in the best quality, the thumbnail, and the title.
-        </p>
+    <main className="relative mx-auto flex w-full max-w-2xl flex-col gap-8 px-6 pb-12 pt-10 sm:pt-14">
+      <header className="flex items-start justify-between gap-4">
+        <div className="space-y-1.5">
+          <h1 className="text-3xl font-semibold tracking-tight sm:text-[2.25rem]">Dragon</h1>
+          <p className="text-sm text-muted">
+            Paste a YouTube link — anywhere in the window. Best quality video, thumbnail, and title.
+          </p>
+        </div>
+        <button
+          type="button"
+          aria-label="Settings"
+          title={`Settings (${platform === "darwin" ? "⌘" : "Ctrl+"},)`}
+          onClick={() => setSettingsOpen(true)}
+          className="mt-1 shrink-0 rounded-xl border border-line p-2.5 text-muted transition-colors hover:border-foreground/30 hover:text-foreground"
+        >
+          <SettingsIcon />
+        </button>
       </header>
 
-      <form onSubmit={lookup} className="flex flex-col gap-3 sm:flex-row">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void lookup(url);
+        }}
+        className="flex flex-col gap-3 sm:flex-row"
+      >
         <input
+          ref={inputRef}
           type="url"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://www.youtube.com/watch?v=..."
+          placeholder="https://www.youtube.com/watch?v=…"
           required
           autoFocus
-          className="min-w-0 flex-1 rounded-xl border border-line bg-surface px-4 py-3 text-sm outline-none transition placeholder:text-muted/60 focus:border-accent/70 focus:ring-2 focus:ring-accent/20"
+          spellCheck={false}
+          className="field flex-1"
         />
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-xl bg-accent px-5 py-3 text-sm font-medium text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {loading ? "Loading…" : "Fetch"}
+        <button type="submit" disabled={fetching || !url.trim()} className="btn-primary min-w-[6.5rem]">
+          {fetching ? <Spinner /> : null}
+          {fetching ? "Loading" : "Fetch"}
         </button>
       </form>
 
       {error && (
-        <p className="rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm text-accent">
+        <p role="alert" className="rise-in rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm text-accent">
           {error}
         </p>
       )}
 
       {info && (
-        <section className="overflow-hidden rounded-2xl border border-line bg-surface">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={info.thumbnail} alt="" className="aspect-video w-full bg-black object-cover" />
+        <section className="rise-in overflow-hidden rounded-2xl border border-line bg-surface">
+          <div className="relative aspect-video w-full bg-black">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={info.thumbnail} alt="" className="h-full w-full object-cover" draggable={false} />
+            {info.durationLabel && (
+              <span className="absolute bottom-3 right-3 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[11px] tabular-nums text-white backdrop-blur">
+                {info.durationLabel}
+              </span>
+            )}
+          </div>
 
           <div className="space-y-5 p-5">
             <div className="space-y-2">
               <div className="flex items-start gap-3">
-                <h2 className="flex-1 text-lg leading-snug font-medium">{info.title}</h2>
+                <h2 className="flex-1 text-lg font-medium leading-snug">{info.title}</h2>
                 <button
+                  type="button"
                   onClick={copyTitle}
-                  className="shrink-0 rounded-lg border border-line px-3 py-1.5 text-xs text-muted transition hover:border-foreground/40 hover:text-foreground"
+                  className="btn-secondary h-8 shrink-0 px-2.5 text-xs"
+                  aria-live="polite"
                 >
-                  {copied ? "Copied" : "Copy title"}
+                  {copied ? <CheckIcon className="text-success" /> : <CopyIcon />}
+                  <span className="w-[4.5rem] text-left">{copied ? "Copied" : "Copy title"}</span>
                 </button>
               </div>
-              <p className="text-xs text-muted">
+              <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
                 {[
                   info.channel,
-                  info.durationLabel,
                   info.viewCount ? `${info.viewCount.toLocaleString()} views` : null,
                   info.uploadDate,
                 ]
                   .filter(Boolean)
-                  .join("  ·  ")}
+                  .map((part, i) => (
+                    <span key={i} className="flex items-center gap-2">
+                      {i > 0 && <span aria-hidden>·</span>}
+                      {part}
+                    </span>
+                  ))}
+                <button
+                  type="button"
+                  onClick={() => dragon().shell.openExternal(info.webpageUrl)}
+                  className="inline-flex items-center gap-1 text-muted transition-colors hover:text-foreground"
+                >
+                  <span aria-hidden>·</span> Open on YouTube <ExternalIcon width={12} height={12} />
+                </button>
               </p>
             </div>
 
@@ -288,7 +269,8 @@ export default function Home() {
                 value={quality}
                 onChange={(e) => setQuality(e.target.value)}
                 disabled={busy}
-                className="rounded-xl border border-line bg-background px-3 py-2.5 text-sm outline-none focus:border-accent/70 disabled:opacity-50"
+                aria-label="Quality"
+                className="field h-11 sm:w-auto sm:min-w-[11rem]"
               >
                 {info.qualities.map((q) => (
                   <option key={q.value} value={q.value}>
@@ -297,67 +279,122 @@ export default function Home() {
                 ))}
               </select>
 
-              <button
-                onClick={startDownload}
-                disabled={busy}
-                className="flex-1 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {busy ? "Working…" : "Download video"}
-              </button>
+              {busy ? (
+                <button type="button" onClick={() => dragon().download.cancel()} className="btn-secondary h-11 flex-1">
+                  <XIcon /> Cancel
+                </button>
+              ) : (
+                <button type="button" onClick={startDownload} className="btn-primary flex-1">
+                  <DownloadIcon /> {result?.status === "done" ? "Download again" : "Download video"}
+                </button>
+              )}
 
-              <a
-                href={`/api/thumb?src=${encodeURIComponent(info.thumbnail)}&name=${encodeURIComponent(info.title)}`}
-                className="rounded-xl border border-line px-4 py-2.5 text-center text-sm text-muted transition hover:border-foreground/40 hover:text-foreground"
+              <button
+                type="button"
+                onClick={saveThumbnail}
+                disabled={thumb === "saving"}
+                className="btn-secondary h-11"
               >
-                Thumbnail
-              </a>
+                {thumb === "saved" ? <CheckIcon className="text-success" /> : <ImageIcon />}
+                {thumb === "saved" ? "Saved" : "Thumbnail"}
+              </button>
             </div>
 
-            {job && job.status !== "error" && (
-              <div className="space-y-2">
+            {job && (
+              <div className="rise-in space-y-2.5">
                 <div className="h-1.5 overflow-hidden rounded-full bg-background">
                   <div
-                    className="h-full rounded-full bg-accent transition-[width] duration-300"
-                    style={{ width: `${job.percent}%` }}
+                    className={`h-full rounded-full bg-accent transition-[width] duration-300 ease-out ${
+                      merging ? "bar-indeterminate" : ""
+                    } ${result?.status === "error" ? "bg-accent/40" : ""}`}
+                    style={{ width: `${result?.status === "done" ? 100 : progress?.percent ?? 0}%` }}
                   />
                 </div>
-                <p className="text-xs text-muted">
-                  {job.status === "uploading"
-                    ? "Uploading…"
-                    : job.status === "merging"
-                    ? "Merging video and audio…"
-                    : job.status === "done"
-                      ? `Saved ${job.filename ?? ""} · ${humanSize(job.size)}`
-                      : `${job.percent}%${job.speed ? ` · ${job.speed}` : ""}${
-                          job.eta ? ` · ${job.eta}s left` : ""
-                        }`}
-                </p>
 
-                {job.status === "done" && job.url && (
-                  <a
-                    href={job.url}
-                    {...(job.url.startsWith("/") ? { download: job.filename ?? "" } : {})}
-                    className="inline-block text-xs text-accent underline underline-offset-2"
-                  >
-                    Didn&apos;t start? Save it here
-                  </a>
+                <div className="flex min-h-[2.25rem] items-center justify-between gap-3 text-xs text-muted">
+                  {!result && (
+                    <p className="tabular-nums">
+                      {merging
+                        ? "Merging video and audio…"
+                        : [
+                            `${Math.round(progress?.percent ?? 0)}%`,
+                            progress?.speed,
+                            humanEta(progress?.eta ?? null),
+                          ]
+                            .filter(Boolean)
+                            .join("  ·  ")}
+                    </p>
+                  )}
+
+                  {result?.status === "done" && (
+                    <>
+                      <p className="min-w-0 truncate text-foreground/90" title={result.filename ?? ""}>
+                        <CheckIcon className="mr-1.5 inline-block text-success" />
+                        Saved {result.filename} <span className="text-muted">· {humanSize(result.size)}</span>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => result.filePath && dragon().shell.showItemInFolder(result.filePath)}
+                        className="btn-secondary h-8 shrink-0 px-2.5 text-xs"
+                      >
+                        <FolderIcon /> Show in folder
+                      </button>
+                    </>
+                  )}
+
+                  {result?.status === "cancelled" && <p>Cancelled.</p>}
+                  {result?.status === "error" && (
+                    <p role="alert" className="text-accent">
+                      {result.error ?? "Download failed."}
+                    </p>
+                  )}
+                </div>
+
+                {result?.status === "done" && result.restricted && (
+                  <p className="text-xs leading-relaxed text-warning">
+                    Only a lower-quality stream was reachable. Update yt-dlp in Settings — a stale copy is
+                    almost always the cause.
+                  </p>
                 )}
               </div>
             )}
-
-            {job?.status === "done" && job.restricted && (
-              <p className="text-xs text-amber-400">
-                Only a lower-quality stream was reachable. Run{" "}
-                <code className="font-mono">npm run update-ytdlp</code> to refresh yt-dlp — a stale
-                copy is almost always the cause.
-              </p>
-            )}
-
-            {job?.status === "error" && (
-              <p className="text-xs text-accent">{job.error ?? "Download failed."}</p>
-            )}
           </div>
         </section>
+      )}
+
+      {settings && (
+        <footer className="mt-auto flex items-center gap-2 text-xs text-muted">
+          <FolderIcon className="shrink-0" />
+          <span className="shrink-0">Saving to</span>
+          <button
+            type="button"
+            onClick={() => dragon().shell.openPath(settings.downloadDir)}
+            title="Open folder"
+            className="min-w-0 truncate font-mono text-foreground/70 transition-colors hover:text-foreground"
+          >
+            {settings.downloadDir}
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              const dir = await dragon().settings.chooseDownloadDir();
+              if (dir) setSettings({ ...settings, downloadDir: dir });
+            }}
+            className="shrink-0 underline decoration-line underline-offset-4 transition-colors hover:text-foreground"
+          >
+            Change
+          </button>
+        </footer>
+      )}
+
+      {settings && (
+        <SettingsSheet
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          settings={settings}
+          onSettings={setSettings}
+          platform={platform}
+        />
       )}
     </main>
   );

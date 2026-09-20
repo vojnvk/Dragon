@@ -2,6 +2,7 @@ import { BrowserWindow, Menu, app, protocol, shell } from "electron";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { registerIpc } from "./ipc";
+import { cancelDownload } from "./ytdlp";
 
 const isMac = process.platform === "darwin";
 const isDev = !app.isPackaged && Boolean(process.env.ELECTRON_RENDERER_URL);
@@ -11,6 +12,19 @@ const APP_ID = "dev.dragon.app";
 // app:// serves the static Next.js export. A real scheme (rather than file://)
 // keeps the absolute /_next/... asset paths working and gives the page a proper
 // origin, so fetch and storage behave normally.
+
+// Thumbnails are the only remote content the page ever loads.
+const CSP = [
+  "default-src 'self'",
+  // The Next.js export boots from inline scripts and Tailwind injects styles.
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https://i.ytimg.com https://*.ytimg.com https://*.ggpht.com",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+].join("; ");
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -44,8 +58,12 @@ function registerAppProtocol(): void {
 
     try {
       const body = await readFile(file);
+      const ext = path.extname(file);
       return new Response(body, {
-        headers: { "Content-Type": MIME[path.extname(file)] ?? "application/octet-stream" },
+        headers: {
+          "Content-Type": MIME[ext] ?? "application/octet-stream",
+          ...(ext === ".html" ? { "Content-Security-Policy": CSP } : {}),
+        },
       });
     } catch {
       return new Response("Not found", { status: 404 });
@@ -66,6 +84,8 @@ function createWindow(): BrowserWindow {
     show: false,
     backgroundColor: "#0b0b0f",
     title: "Dragon",
+    // Packaged builds take the icon from the executable / bundle.
+    ...(app.isPackaged ? {} : { icon: path.join(app.getAppPath(), "assets", "icon.png") }),
     // macOS keeps its native traffic lights, moved into our title bar; other
     // platforms draw everything themselves.
     ...(isMac
@@ -144,6 +164,9 @@ if (!app.requestSingleInstanceLock()) {
       if (BrowserWindow.getAllWindows().length === 0) win = createWindow();
     });
   });
+
+  // Never leave a yt-dlp behind writing into the download folder.
+  app.on("before-quit", () => cancelDownload());
 
   app.on("window-all-closed", () => {
     if (!isMac) app.quit();

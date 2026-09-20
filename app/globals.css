@@ -5,8 +5,11 @@
   --foreground: #f4f4f5;
   --muted: #a1a1aa;
   --surface: #141419;
+  --surface-2: #1b1b22;
   --border: #26262e;
   --accent: #ff2d55;
+  --success: #34d399;
+  --warning: #fbbf24;
 }
 
 @theme inline {
@@ -14,20 +17,215 @@
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
   --color-line: var(--border);
   --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
-  background:
-    radial-gradient(60rem 40rem at 50% -12rem, rgba(255, 45, 85, 0.13), transparent 70%),
-    var(--background);
+  background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
+  /* The app is a fixed-size window; nothing should ever rubber-band. */
+  overscroll-behavior: none;
 }
 
 ::selection {
   background: rgba(255, 45, 85, 0.3);
+}
+
+/* The one page scroll region. Thin, quiet scrollbar that matches the chrome. */
+.scroll-area {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.scroll-area::-webkit-scrollbar {
+  width: 8px;
+}
+.scroll-area::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+}
+.scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- Frameless window chrome -------------------------------------------- */
+
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Windows 11 caption buttons: 46×38, subtle hover, red close. */
+.win-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  color: var(--muted);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.win-control:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--foreground);
+}
+.win-control:active {
+  background: rgba(255, 255, 255, 0.05);
+}
+.win-control-close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+.win-control-close:active {
+  background: #b3271a;
+}
+.win-control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ---- Controls ------------------------------------------------------------- */
+
+@utility btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.75rem;
+  padding: 0 1.25rem;
+  border-radius: 0.75rem;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: filter 150ms ease, transform 150ms var(--ease-out-quart), opacity 150ms ease;
+  &:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+  &:active:not(:disabled) {
+    transform: scale(0.985);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+@utility btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  height: 2.25rem;
+  padding: 0 0.875rem;
+  border-radius: 0.625rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
+  &:hover:not(:disabled) {
+    border-color: rgba(244, 244, 245, 0.35);
+    color: var(--foreground);
+    background: rgba(255, 255, 255, 0.03);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+@utility field {
+  width: 100%;
+  min-width: 0;
+  height: 2.75rem;
+  padding: 0 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+  &::placeholder {
+    color: rgba(161, 161, 170, 0.55);
+  }
+  &:focus {
+    border-color: rgba(255, 45, 85, 0.7);
+    box-shadow: 0 0 0 3px rgba(255, 45, 85, 0.18);
+  }
+  &:disabled {
+    opacity: 0.5;
+  }
+}
+
+/* ---- Motion --------------------------------------------------------------- */
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise-in {
+  animation: rise-in 220ms var(--ease-out-quart) both;
+}
+
+/* Diagonal sheen that drifts across an indeterminate bar. */
+@keyframes sheen {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 32px 0;
+  }
+}
+.bar-indeterminate {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--accent) 0 8px,
+    rgba(255, 45, 85, 0.55) 8px 16px
+  );
+  background-size: 32px 100%;
+  animation: sheen 700ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise-in,
+  .bar-indeterminate,
+  .animate-spin {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
 }
