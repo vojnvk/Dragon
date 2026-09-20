@@ -79,6 +79,12 @@ export const TextIcon = (p: Props) => (
   </svg>
 );
 
+export const ExpandIcon = (p: Props) => (
+  <svg {...base} width={12} height={12} {...p}>
+    <path d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9" />
+  </svg>
+);
+
 export const CopyIcon = (p: Props) => (
   <svg {...base} {...p}>
     <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
