@@ -27,7 +27,10 @@ npm run dist:mac   # release/Dragon-<version>-mac-<arch>.dmg (arch of the buildi
 
 Each platform builds on itself: the Windows build needs Windows, the macOS
 build needs a Mac (the bundled `ffmpeg` and `yt-dlp` are platform binaries and
-the DMG is a macOS format).
+the DMG is a macOS format). Official builds come from GitHub Actions
+(`.github/workflows/release.yml`): push a `v*` tag matching `version` in
+`package.json` and the Windows installer plus both macOS DMGs are attached to
+the release.
 
 **macOS is unsigned.** Without an Apple Developer account there is no
 signature or notarization, so Gatekeeper refuses the first launch. Either
