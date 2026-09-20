@@ -1,6 +1,9 @@
 # Builds the desktop app for Windows and macOS and attaches the installers to a
 # GitHub Release. Triggered by pushing a tag like v1.2.3; the tag must match
 # the version in desktop/package.json (electron-builder names the files by it).
+#
+# Each platform builds in its own job and hands the installer over as an
+# artifact; a single final job publishes them, so nothing races on the release.
 name: Release desktop app
 
 on:
@@ -11,14 +14,13 @@ on:
 permissions:
   contents: write
 
-defaults:
-  run:
-    working-directory: desktop
-
 jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
     strategy:
       fail-fast: false
       matrix:
@@ -45,22 +47,45 @@ jobs:
       # postinstall fetches the yt-dlp nightly for this platform into ./bin and
       # ffmpeg-static downloads the matching ffmpeg.
       - run: npm ci
-
       - run: npm test
       - run: npm run build
 
-      # `--publish always` uploads straight to the release for this tag,
-      # creating it if the other platform's job has not already.
-      - run: npx electron-builder ${{ matrix.args }} --publish always
+      - run: npx electron-builder ${{ matrix.args }} --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No Apple Developer certificate: build unsigned, don't look for one.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dragon-${{ matrix.os }}
+          name: installers-${{ matrix.os }}
           path: |
             desktop/release/*.exe
             desktop/release/*.dmg
           if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          merge-multiple: true
+          path: installers
+
+      - run: ls -la installers
+
+      # Create the release on first run; on a re-run start from a clean asset
+      # list so nothing stale from an earlier attempt is left behind.
+      - run: |
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release view "$TAG" --repo "$REPO" --json assets -q '.assets[].name'               | xargs -r -n1 gh release delete-asset "$TAG" --repo "$REPO" -y
+          else
+            gh release create "$TAG" --repo "$REPO" --title "Dragon $TAG" --generate-notes
+          fi
+          gh release upload "$TAG" installers/* --repo "$REPO"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}

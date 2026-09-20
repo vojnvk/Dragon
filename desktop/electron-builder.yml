@@ -7,14 +7,6 @@ directories:
   buildResources: assets
   output: release
 
-# `electron-builder --publish always` (see .github/workflows/release.yml)
-# attaches the installers to the GitHub Release for the pushed tag.
-publish:
-  provider: github
-  owner: vojnvk
-  repo: Dragon
-  releaseType: release
-
 # Only the built output ships; sources and dev tooling stay out of the asar.
 files:
   - dist-electron/**
