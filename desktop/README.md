@@ -29,8 +29,10 @@ bundled ffmpeg is a native binary and the DMG is a Mac format. A Mac builds for
 its own architecture only. The release workflow in `.github/workflows` builds
 all three.
 
-Mac builds are unsigned. To sign, set `identity` in `electron-builder.yml`
-and provide `CSC_LINK` / `CSC_KEY_PASSWORD`.
+Mac builds are unsigned; `scripts/adhoc-sign-mac.mjs` only re-signs the packed
+bundle ad-hoc, because without a valid signature macOS calls the app damaged
+rather than merely unsigned. To sign for real, set `identity` in
+`electron-builder.yml` and provide `CSC_LINK` / `CSC_KEY_PASSWORD`.
 
 ## Layout
 

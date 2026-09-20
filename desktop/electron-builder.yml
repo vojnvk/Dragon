@@ -7,6 +7,8 @@ directories:
   buildResources: assets
   output: release
 
+afterPack: scripts/adhoc-sign-mac.mjs
+
 # Only the built output ships; sources and dev tooling stay out of the asar.
 files:
   - dist-electron/**
@@ -54,6 +56,8 @@ mac:
   darkModeSupport: true
   # No Apple Developer account: ship unsigned. Users open it once via
   # right-click → Open (or `xattr -dr com.apple.quarantine Dragon.app`).
+  # scripts/adhoc-sign-mac.mjs re-signs the packed bundle ad-hoc afterwards,
+  # without which macOS calls the app damaged instead of merely unsigned.
   identity: null
   hardenedRuntime: false
   gatekeeperAssess: false
