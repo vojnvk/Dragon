@@ -1,0 +1,68 @@
+appId: dev.dragon.app
+productName: Dragon
+copyright: Copyright © 2026
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+directories:
+  buildResources: assets
+  output: release
+
+# Only the built output ships; sources and dev tooling stay out of the asar.
+files:
+  - dist-electron/**
+  - out/**
+  - package.json
+  - "!node_modules/**"
+
+# yt-dlp and ffmpeg are spawned by path, so they must live outside the asar.
+# `bin/` is filled by scripts/update-ytdlp.mjs on npm install.
+extraResources:
+  - from: bin
+    to: bin
+    filter: ["yt-dlp*"]
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  icon: assets/icon.ico
+  extraResources:
+    - from: node_modules/ffmpeg-static/ffmpeg.exe
+      to: bin/ffmpeg.exe
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  shortcutName: Dragon
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+
+mac:
+  category: public.app-category.utilities
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  icon: assets/icon.icns
+  darkModeSupport: true
+  # No Apple Developer account: ship unsigned. Users open it once via
+  # right-click → Open (or `xattr -dr com.apple.quarantine Dragon.app`).
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  extraResources:
+    - from: node_modules/ffmpeg-static/ffmpeg
+      to: bin/ffmpeg
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications

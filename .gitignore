@@ -45,3 +45,7 @@ next-env.d.ts
 
 # yt-dlp binary fetched by scripts/update-ytdlp.mjs
 /bin
+
+# electron
+/dist-electron
+/release
